@@ -51,8 +51,15 @@ patcher()
 {
 	for _patch in "$LN_BASEDIR"/patches/wine/*.patch
 	do
-		msg "Applying $(basename "${_patch}")"
-		patch -d "${_src_path}" -Np1 < "${_patch}"
+		local _patchname
+		_patchname="$(basename "${_patch}")"
+
+		msg "Applying ${_patchname}"
+		if ! patch -d "${_src_path}" -Np1 < "${_patch}"
+		then
+			error "${_patchname}"
+			exit 1
+		fi
 	done
 }
 
