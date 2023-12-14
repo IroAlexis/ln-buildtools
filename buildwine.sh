@@ -131,7 +131,11 @@ if [ -d "${_prefix}" ]
 then
 	mv "${_prefix}" "${_prefix}.old"
 fi
-make -C "$BUILD_DIR" install
+
+if make -C "$BUILD_DIR" install
+then
+	msg "Wine build available here: ${_prefix}"
+fi
 
 # Fix for winetricks
 (cd "${_prefix}/bin" && ln -s wine wine64)
