@@ -70,13 +70,24 @@ user_patches()
 {
 	for _patch in "$LN_BASEDIR"/userpatches/wine/*.patch
 	do
-		local _id
-		_id="$(basename -s .patch "${_patch}")"
+		local _name
+		local _rslt
+		_name="$(basename -s .patch "${_patch}")"
 
-		msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_id}"
-		read -rp "Press enter for continue..."
+		if [[ ${_name} =~ ^[0-9]+$ ]]
+		then
+			msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
+		else
+			msg "${_name}.patch"
+		fi
 
-		patcher "${_patch}"
+		read -rp "Do you want apply this patch? [N/y]" _rslt
+		if [[ ${_rslt} =~ [Yy] ]]
+		then
+			patcher "${_patch}"
+		else
+			msg "Skipping apply this patch"
+		fi
 	done
 }
 
