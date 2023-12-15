@@ -49,17 +49,34 @@ export_ccache()
 
 patcher()
 {
+	if ! patch -d "${_src_path}" -Np1 < "$1"
+	then
+		error "$(basename "$1")"
+		exit 1
+	fi
+}
+
+ln_patches()
+{
 	for _patch in "$LN_BASEDIR"/patches/wine/*.patch
 	do
-		local _patchname
-		_patchname="$(basename "${_patch}")"
+		msg "Applying $(basename "${_patch}")"
 
-		msg "Applying ${_patchname}"
-		if ! patch -d "${_src_path}" -Np1 < "${_patch}"
-		then
-			error "${_patchname}"
-			exit 1
-		fi
+		patcher "${_patch}"
+	done
+}
+
+user_patches()
+{
+	for _patch in "$LN_BASEDIR"/userpatches/wine/*.patch
+	do
+		local _id
+		_id="$(basename -s .patch "${_patch}")"
+
+		msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_id}"
+		read -rp "Press enter for continue..."
+
+		patcher "${_patch}"
 	done
 }
 
@@ -106,7 +123,8 @@ ${_git_src} reset --hard HEAD
 ${_git_src} clean -xdf
 
 
-patcher
+ln_patches
+user_patches
 (cd "${_src_path}" && polish)
 
 
