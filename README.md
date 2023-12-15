@@ -2,6 +2,8 @@
 
 A set of scripts that make it easy to build Wine, DXVK and VKD3D-Proton from source code.
 
+Based on [wine-tkg-git](https://github.com/Frogging-Family/wine-tkg-git)
+
 
 # Wine
 ## Enable Damavand
