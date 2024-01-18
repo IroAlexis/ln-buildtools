@@ -81,12 +81,10 @@ user_patches()
 			msg "${_name}.patch"
 		fi
 
-		read -rp "Do you want apply this patch? [N/y]" _rslt
+		read -rp "Do you want apply this patch? [N/y] " _rslt
 		if [[ ${_rslt} =~ [Yy] ]]
 		then
 			patcher "${_patch}"
-		else
-			msg "Skipping apply this patch"
 		fi
 	done
 }
