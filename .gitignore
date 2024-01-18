@@ -1,6 +1,6 @@
-userpatches/wine/
-userpatches/dxvk/
-userpatches/vkd3d-proton/
-!userpatches/wine/README.md
-!userpatches/dxvk/README.md
-!userpatches/vkd3d-proton/README.md
+wine/userpatches/
+dxvk/userpatches/
+vkd3d-proton/userpatches/
+!wine/userpatches/README.md
+!dxvk/userpatches/README.md
+!vkd3d-proton/userpatches/README.md
