@@ -1,14 +1,32 @@
 #!/usr/bin/env bash
 
+# ln-buildtools - Script for build lastest wine-git
+# Copyright (C) 2023  IroAlexis <iroalexis@outlook.fr>
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 # Based on TkG's work https://github.com/Frogging-Family/wine-tkg-git
+
 
 set -e
 
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
 LN_BASEDIR="$(realpath "$(dirname "$0")")"
-LN_BUILDDIR="/tmp/ln-tools"
-LN_USER_DATA="$XDG_USER_DATA/ln-tools"
+LN_BUILDDIR="/tmp/ln-buildtools"
+LN_USER_DATA="$XDG_USER_DATA/ln-buildtools"
 
 
 msg()
