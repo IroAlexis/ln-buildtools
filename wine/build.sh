@@ -72,21 +72,24 @@ user_patches()
 {
 	for _patch in "$LN_BASEDIR"/userpatches/*.patch
 	do
-		local _name
-		local _rslt
-		_name="$(basename -s .patch "${_patch}")"
-
-		if [[ ${_name} =~ ^[0-9]+$ ]]
+		if [ -e "${_patch}" ]
 		then
-			msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
-		else
-			msg "${_name}.patch"
-		fi
+			local _name
+			local _rslt
+			_name="$(basename -s .patch "${_patch}")"
 
-		read -rp "Do you want apply this patch? [N/y] " _rslt
-		if [[ ${_rslt} =~ [Yy] ]]
-		then
-			patcher "${_patch}"
+			if [[ ${_name} =~ ^[0-9]+$ ]]
+			then
+				msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
+			else
+				msg "${_name}.patch"
+			fi
+
+			read -rp "Do you want apply this patch? [N/y] " _rslt
+			if [[ ${_rslt} =~ [Yy] ]]
+			then
+				patcher "${_patch}"
+			fi
 		fi
 	done
 }
