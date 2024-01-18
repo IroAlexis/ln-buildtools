@@ -58,9 +58,11 @@ patcher()
 
 ln_patches()
 {
-	for _patch in "$LN_BASEDIR"/patches/wine/*.patch
+	for _patch in "$LN_BASEDIR"/patches/*.patch
 	do
+		msg "################################"
 		msg "Applying $(basename "${_patch}")"
+		msg "################################"
 
 		patcher "${_patch}"
 	done
@@ -68,7 +70,7 @@ ln_patches()
 
 user_patches()
 {
-	for _patch in "$LN_BASEDIR"/userpatches/wine/*.patch
+	for _patch in "$LN_BASEDIR"/userpatches/*.patch
 	do
 		local _name
 		local _rslt
@@ -92,11 +94,11 @@ user_patches()
 polish()
 {
 	git add ./* && true
-	
+
 	./tools/make_makefiles
 	./dlls/winevulkan/make_vulkan
 	./tools/make_requests
-	
+
 	if [ -e tools/make_specfiles ]; then
 	  ./tools/make_specfiles
 	fi
