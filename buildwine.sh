@@ -146,7 +146,8 @@ export_ccache
 	--prefix="${_prefix}" \
 	--enable-win64 \
 	--enable-archs=i386,x86_64 \
-	--disable-tests)
+	--disable-tests \
+	--with-gstreamer)
 
 
 msg "Building..."
