@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# ln-buildtools - Script for build lastest wine-git
+# buildertools - Script for build lastest wine-git
 # Copyright (C) 2023  IroAlexis <iroalexis@outlook.fr>
 
 # This program is free software; you can redistribute it and/or modify
@@ -25,8 +25,8 @@ set -e
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
 LN_BASEDIR="$(realpath "$(dirname "$0")")"
-LN_BUILDDIR="/tmp/ln-buildtools"
-LN_USER_DATA="$XDG_USER_DATA/ln-buildtools"
+LN_BUILDDIR="/tmp/buildertools"
+LN_USER_DATA="$XDG_USER_DATA/buildertools"
 
 
 msg()
