@@ -185,11 +185,11 @@ fi
 
 if make -C "$BUILD_DIR" install
 then
+	# Workaround for winetricks and cie
+	(cd "${_prefix}/bin" && ln -s wine wine64)
+
 	msg "Wine build available here: ${_prefix}"
 fi
-
-# Fix for winetricks
-(cd "${_prefix}/bin" && ln -s wine wine64)
 
 
 exit 0
