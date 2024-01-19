@@ -20,7 +20,12 @@
 # Based on TkG's work https://github.com/Frogging-Family/wine-tkg-git
 
 
-set -e
+if [ -n "$DEBUG" ]
+then
+	set -xe
+else
+	set -e
+fi
 
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
