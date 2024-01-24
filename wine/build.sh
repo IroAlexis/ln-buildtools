@@ -98,6 +98,18 @@ apply_userpatches()
 	done
 }
 
+build()
+{
+	"${_src_path}"/configure \
+		--prefix="${_prefix}" \
+		--enable-win64 \
+		--enable-archs=i386,x86_64 \
+		--disable-tests \
+		--with-gstreamer
+
+	make -j"$(nproc)"
+}
+
 configure_ccache()
 {
 	if command -v ccache &>/dev/null
@@ -167,22 +179,12 @@ apply_userpatches
 (cd "${_src_path}" && polish_source)
 
 
-_msg "Configuring Wine build directory..."
 BUILD_DIR="/tmp/build64"
 mkdir -p "$BUILD_DIR"
-
 configure_ccache
-(cd "$BUILD_DIR" && "${_src_path}"/configure \
-	--prefix="${_prefix}" \
-	--enable-win64 \
-	--enable-archs=i386,x86_64 \
-	--disable-tests \
-	--with-gstreamer)
-
 
 _msg "Building..."
-make -C "$BUILD_DIR" -j"$(nproc)"
-
+(cd "$BUILD_DIR" && build)
 
 _msg "Installing to ${_prefix}..."
 if [ -d "${_prefix}" ]
