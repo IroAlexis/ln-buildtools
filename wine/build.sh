@@ -60,6 +60,18 @@ _run_patcher()
 }
 
 
+apply_patches()
+{
+	for _patch in "$LN_BASEDIR"/patches/*.patch
+	do
+		_msg "################################"
+		_msg "Applying $(basename "${_patch}")"
+		_msg "################################"
+
+		_run_patcher "${_patch}"
+	done
+}
+
 apply_userpatches()
 {
 	for _patch in "$LN_BASEDIR"/userpatches/*.patch
@@ -107,18 +119,6 @@ export_ccache()
 	fi
 }
 
-ln_patches()
-{
-	for _patch in "$LN_BASEDIR"/patches/*.patch
-	do
-		_msg "################################"
-		_msg "Applying $(basename "${_patch}")"
-		_msg "################################"
-
-		_run_patcher "${_patch}"
-	done
-}
-
 polish_source()
 {
 	git add ./* && true
@@ -162,7 +162,7 @@ ${_git_src} reset --hard HEAD
 ${_git_src} clean -xdf
 
 
-ln_patches
+apply_patches
 apply_userpatches
 (cd "${_src_path}" && polish_source)
 
