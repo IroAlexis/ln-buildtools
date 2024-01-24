@@ -60,6 +60,32 @@ _run_patcher()
 }
 
 
+apply_userpatches()
+{
+	for _patch in "$LN_BASEDIR"/userpatches/*.patch
+	do
+		if [ -e "${_patch}" ]
+		then
+			local _name
+			local _rslt
+			_name="$(basename -s .patch "${_patch}")"
+
+			if [[ ${_name} =~ ^[0-9]+$ ]]
+			then
+				_msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
+			else
+				_msg "${_name}.patch"
+			fi
+
+			read -rp "Do you want apply this patch? [N/y] " _rslt
+			if [[ ${_rslt} =~ [Yy] ]]
+			then
+				_run_patcher "${_patch}"
+			fi
+		fi
+	done
+}
+
 export_ccache()
 {
 	if command -v ccache &>/dev/null
@@ -90,32 +116,6 @@ ln_patches()
 		_msg "################################"
 
 		_run_patcher "${_patch}"
-	done
-}
-
-user_patches()
-{
-	for _patch in "$LN_BASEDIR"/userpatches/*.patch
-	do
-		if [ -e "${_patch}" ]
-		then
-			local _name
-			local _rslt
-			_name="$(basename -s .patch "${_patch}")"
-
-			if [[ ${_name} =~ ^[0-9]+$ ]]
-			then
-				_msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
-			else
-				_msg "${_name}.patch"
-			fi
-
-			read -rp "Do you want apply this patch? [N/y] " _rslt
-			if [[ ${_rslt} =~ [Yy] ]]
-			then
-				_run_patcher "${_patch}"
-			fi
-		fi
 	done
 }
 
@@ -163,7 +163,7 @@ ${_git_src} clean -xdf
 
 
 ln_patches
-user_patches
+apply_userpatches
 (cd "${_src_path}" && polish_source)
 
 
