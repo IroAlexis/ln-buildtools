@@ -34,29 +34,31 @@ LN_BUILDDIR="/tmp/buildertools"
 LN_USER_DATA="$XDG_USER_DATA/buildertools"
 
 
-_run_patcher()
-{
-	if ! patch -d "${_src_path}" -Np1 < "$1"
-	then
-		error "$(basename "$1")"
-		exit 1
-	fi
-}
 
-msg()
-{
-	echo -e "\033[1;34m->\033[1;0m \033[1;1m$1\033[1;0m" >&2
-}
-
-error()
+_error()
 {
 	echo -e "\033[1;31m==> ERROR: $1\033[1;0m" >&2
 }
 
-warning()
+_msg()
+{
+	echo -e "\033[1;34m->\033[1;0m \033[1;1m$1\033[1;0m" >&2
+}
+
+_warning()
 {
 	echo -e "\033[1;33m==> WARNING: $1\033[1;0m" >&2
 }
+
+_run_patcher()
+{
+	if ! patch -d "${_src_path}" -Np1 < "$1"
+	then
+		_error "$(basename "$1")"
+		exit 1
+	fi
+}
+
 
 export_ccache()
 {
@@ -75,7 +77,7 @@ export_ccache()
 		i386_CC="ccache i686-w64-mingw32-gcc"
 		export i386_CC
 	else
-		warning "ccache not installed"
+		_warning "ccache not installed"
 	fi
 }
 
@@ -83,9 +85,9 @@ ln_patches()
 {
 	for _patch in "$LN_BASEDIR"/patches/*.patch
 	do
-		msg "################################"
-		msg "Applying $(basename "${_patch}")"
-		msg "################################"
+		_msg "################################"
+		_msg "Applying $(basename "${_patch}")"
+		_msg "################################"
 
 		_run_patcher "${_patch}"
 	done
@@ -103,9 +105,9 @@ user_patches()
 
 			if [[ ${_name} =~ ^[0-9]+$ ]]
 			then
-				msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
+				_msg "https://gitlab.winehq.org/wine/wine/-/merge_requests/${_name}"
 			else
-				msg "${_name}.patch"
+				_msg "${_name}.patch"
 			fi
 
 			read -rp "Do you want apply this patch? [N/y] " _rslt
@@ -141,7 +143,7 @@ _git_src="git -C ${_src_path}"
 _pkgname="ln-wine-git"
 _prefix="$HOME/tools/${_pkgname}"
 
-msg "Cloning/fetching gitlab/wine and prepare source... Please be patient."
+_msg "Cloning/fetching gitlab/wine and prepare source... Please be patient."
 if ! [ -d "${_mirror_path}" ]
 then
 	git clone --mirror "${_repo_url_mainline}" "${_mirror_path}"
@@ -155,7 +157,7 @@ fi
 git clone "${_mirror_path}" "${_src_path}"
 
 
-msg "Cleaning wine source code tree..."
+_msg "Cleaning wine source code tree..."
 ${_git_src} reset --hard HEAD
 ${_git_src} clean -xdf
 
@@ -165,7 +167,7 @@ user_patches
 (cd "${_src_path}" && polish)
 
 
-msg "Configuring Wine build directory..."
+_msg "Configuring Wine build directory..."
 BUILD_DIR="/tmp/build64"
 mkdir -p "$BUILD_DIR"
 
@@ -178,11 +180,11 @@ export_ccache
 	--with-gstreamer)
 
 
-msg "Building..."
+_msg "Building..."
 make -C "$BUILD_DIR" -j"$(nproc)"
 
 
-msg "Installing to ${_prefix}..."
+_msg "Installing to ${_prefix}..."
 if [ -d "${_prefix}" ]
 then
 	mv "${_prefix}" "${_prefix}.old"
@@ -193,7 +195,7 @@ then
 	# Workaround for winetricks and cie
 	(cd "${_prefix}/bin" && ln -s wine wine64)
 
-	msg "Wine build available here: ${_prefix}"
+	_msg "Wine build available here: ${_prefix}"
 fi
 
 
