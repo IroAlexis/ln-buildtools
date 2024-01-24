@@ -98,7 +98,7 @@ apply_userpatches()
 	done
 }
 
-export_ccache()
+configure_ccache()
 {
 	if command -v ccache &>/dev/null
 	then
@@ -171,7 +171,7 @@ _msg "Configuring Wine build directory..."
 BUILD_DIR="/tmp/build64"
 mkdir -p "$BUILD_DIR"
 
-export_ccache
+configure_ccache
 (cd "$BUILD_DIR" && "${_src_path}"/configure \
 	--prefix="${_prefix}" \
 	--enable-win64 \
