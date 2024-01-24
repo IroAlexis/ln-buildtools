@@ -119,7 +119,7 @@ user_patches()
 	done
 }
 
-polish()
+polish_source()
 {
 	git add ./* && true
 
@@ -164,7 +164,7 @@ ${_git_src} clean -xdf
 
 ln_patches
 user_patches
-(cd "${_src_path}" && polish)
+(cd "${_src_path}" && polish_source)
 
 
 _msg "Configuring Wine build directory..."
