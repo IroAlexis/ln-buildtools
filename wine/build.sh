@@ -34,6 +34,15 @@ LN_BUILDDIR="/tmp/buildertools"
 LN_USER_DATA="$XDG_USER_DATA/buildertools"
 
 
+_run_patcher()
+{
+	if ! patch -d "${_src_path}" -Np1 < "$1"
+	then
+		error "$(basename "$1")"
+		exit 1
+	fi
+}
+
 msg()
 {
 	echo -e "\033[1;34m->\033[1;0m \033[1;1m$1\033[1;0m" >&2
@@ -70,15 +79,6 @@ export_ccache()
 	fi
 }
 
-patcher()
-{
-	if ! patch -d "${_src_path}" -Np1 < "$1"
-	then
-		error "$(basename "$1")"
-		exit 1
-	fi
-}
-
 ln_patches()
 {
 	for _patch in "$LN_BASEDIR"/patches/*.patch
@@ -87,7 +87,7 @@ ln_patches()
 		msg "Applying $(basename "${_patch}")"
 		msg "################################"
 
-		patcher "${_patch}"
+		_run_patcher "${_patch}"
 	done
 }
 
@@ -111,7 +111,7 @@ user_patches()
 			read -rp "Do you want apply this patch? [N/y] " _rslt
 			if [[ ${_rslt} =~ [Yy] ]]
 			then
-				patcher "${_patch}"
+				_run_patcher "${_patch}"
 			fi
 		fi
 	done
