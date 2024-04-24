@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# buildertools - Script for build lastest wine-git
+# buildtools - Script for build lastest wine-git
 # Copyright (C) 2023  IroAlexis <iroalexis@outlook.fr>
 #
 # This program is free software; you can redistribute it and/or modify
@@ -19,6 +19,7 @@
 
 # Based on TkG's work https://github.com/Frogging-Family/wine-tkg-git
 
+_name="buildtools"
 
 if [ -n "$DEBUG" ]
 then
@@ -29,9 +30,13 @@ fi
 
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
-LN_BASEDIR="$(realpath "$(dirname "$0")")"
-LN_BUILDDIR="/tmp/buildertools"
-LN_USER_DATA="$XDG_USER_DATA/buildertools"
+pkgname="wine-fsync-git"
+url="https://gitlab.winehq.org/wine/wine.git"
+
+buildir="/tmp/${_name}"
+userdata="$XDG_USER_DATA/${_name}"
+destdir="$HOME/tools/${pkgname}"
+
 
 
 
@@ -62,7 +67,7 @@ _run_patcher()
 
 apply_patches()
 {
-	for _patch in "$LN_BASEDIR"/patches/*.patch
+	for _patch in "${_basedir}/patches/"*.patch
 	do
 		_msg "################################"
 		_msg "Applying $(basename "${_patch}")"
@@ -74,7 +79,7 @@ apply_patches()
 
 apply_userpatches()
 {
-	for _patch in "$LN_BASEDIR"/userpatches/*.patch
+	for _patch in "${_basedir}"/userpatches/*.patch
 	do
 		if [ -e "${_patch}" ]
 		then
@@ -98,10 +103,10 @@ apply_userpatches()
 	done
 }
 
-build()
+launch_build()
 {
 	"${_src_path}"/configure \
-		--prefix="${_prefix}" \
+		--prefix="${destdir}" \
 		--enable-win64 \
 		--enable-archs=i386,x86_64 \
 		--disable-tests \
@@ -146,21 +151,16 @@ polish_source()
 }
 
 
-_repo_url_mainline="https://gitlab.winehq.org/wine/wine.git"
-_mirror_path="$LN_USER_DATA/wine"
-_src_path="$LN_BUILDDIR/wine"
-_git_mir="git -C ${_mirror_path}"
-_git_src="git -C ${_src_path}"
-
-_pkgname="ln-wine-git"
-_prefix="$HOME/tools/${_pkgname}"
+_basedir="$(realpath "$(dirname "$0")")"
+_mirror_path="${userdata}/${url##*/}"
+_src_path="${buildir}/${url##*/}"
 
 _msg "Cloning/fetching gitlab/wine and prepare source... Please be patient."
 if ! [ -d "${_mirror_path}" ]
 then
-	git clone --mirror "${_repo_url_mainline}" "${_mirror_path}"
+	git clone --mirror "${url}" "${_mirror_path}"
 fi
-${_git_mir} fetch --all -p
+git -C "${_mirror_path}" fetch --all -p
 
 if [ -d "${_src_path}" ]
 then
@@ -170,8 +170,8 @@ git clone "${_mirror_path}" "${_src_path}"
 
 
 _msg "Cleaning wine source code tree..."
-${_git_src} reset --hard HEAD
-${_git_src} clean -xdf
+git -C "${_src_path}" reset --hard HEAD
+git -C "${_src_path}" clean -xdf
 
 
 apply_patches
@@ -179,25 +179,20 @@ apply_userpatches
 (cd "${_src_path}" && polish_source)
 
 
-BUILD_DIR="/tmp/build64"
-mkdir -p "$BUILD_DIR"
+_wine_build="$buildir/${url##*/}-build"
+mkdir -p "${_wine_build}"
 configure_ccache
 
 _msg "Building..."
-(cd "$BUILD_DIR" && build)
+(cd "${_wine_build}" && launch_build)
 
-_msg "Installing to ${_prefix}..."
-if [ -d "${_prefix}" ]
-then
-	mv "${_prefix}" "${_prefix}.old"
-fi
-
-if make -C "$BUILD_DIR" install
+_msg "Installing to ${destdir}..."
+if make -C "${_wine_build}" install
 then
 	# Workaround for winetricks and cie
-	(cd "${_prefix}/bin" && ln -s wine wine64)
+	(cd "${destdir}/bin" && ln -s wine wine64)
 
-	_msg "Wine build available here: ${_prefix}"
+	_msg "Wine build available here: ${destdir}"
 fi
 
 
