@@ -30,8 +30,8 @@ fi
 
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
-pkgname="wine-fsync-git"
 url="https://gitlab.winehq.org/wine/wine.git"
+pkgname="wine-git-fsync"
 
 buildir="/tmp/${_name}"
 userdata="$XDG_USER_DATA/${_name}"
@@ -110,7 +110,9 @@ launch_build()
 		--enable-win64 \
 		--enable-archs=i386,x86_64 \
 		--disable-tests \
-		--with-gstreamer
+		--with-gstreamer \
+		--with-vulkan \
+		--with-wayland
 
 	make -j"$(nproc)"
 }
