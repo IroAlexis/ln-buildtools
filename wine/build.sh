@@ -179,7 +179,7 @@ apply_userpatches
 (cd "${_src_path}" && polish_source)
 
 
-_wine_build="$buildir/${url##*/}-build"
+_wine_build="${buildir}/${url##*/}-build"
 mkdir -p "${_wine_build}"
 configure_ccache
 
