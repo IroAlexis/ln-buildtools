@@ -190,7 +190,7 @@ _msg "Installing to ${destdir}..."
 if make -C "${_wine_build}" install
 then
 	# Workaround for winetricks and cie
-	(cd "${destdir}/bin" && ln -s wine wine64)
+	ln -sr "${destdir}/bin/wine" "${destdir}/bin/wine64"
 
 	_msg "Wine build available here: ${destdir}"
 fi
