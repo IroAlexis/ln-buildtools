@@ -114,6 +114,11 @@ launch_build()
 		--with-vulkan \
 		--with-wayland
 
+	if [ -n "$DEBUG" ]
+	then
+		read -rp "Press enter for continue..."
+	fi
+
 	make -j"$(nproc)"
 }
 
