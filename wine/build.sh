@@ -116,6 +116,7 @@ launch_build()
 
 	if [ -n "$DEBUG" ]
 	then
+		git -C "${_src_path}" log -1 --pretty=format:"%h %s"
 		read -rp "Press enter for continue..."
 	fi
 
