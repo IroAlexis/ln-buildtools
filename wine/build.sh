@@ -192,6 +192,9 @@ then
 	# Workaround for winetricks and cie
 	ln -sr "${destdir}/bin/wine" "${destdir}/bin/wine64"
 
+	# Backup compiled wine version
+	git -C "${_src_path}" describe --tags --long > "${destdir}/share/wine/version"
+
 	_msg "Wine build available here: ${destdir}"
 fi
 
