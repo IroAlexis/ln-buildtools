@@ -31,7 +31,7 @@ fi
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
 url="https://gitlab.winehq.org/wine/wine.git"
-pkgname="wine-git"
+pkgname="wine-fastsync-git"
 
 buildir="/tmp/${_name}"
 userdata="$XDG_USER_DATA/${_name}"
@@ -57,7 +57,7 @@ _warning()
 
 _run_patcher()
 {
-	if ! patch -d "${_src_path}" -Np1 < "$1"
+	if ! git -C "${_src_path}" apply "$1"
 	then
 		_error "$(basename "$1")"
 		exit 1
