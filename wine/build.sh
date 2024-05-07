@@ -31,7 +31,7 @@ fi
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
 url="https://gitlab.winehq.org/wine/wine.git"
-pkgname="wine-git-fsync"
+pkgname="wine-git"
 
 buildir="/tmp/${_name}"
 userdata="$XDG_USER_DATA/${_name}"
