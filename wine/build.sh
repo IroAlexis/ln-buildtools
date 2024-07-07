@@ -198,7 +198,7 @@ _msg "Installing to ${destdir}..."
 if make -C "${_wine_build}" install
 then
 	# Workaround for winetricks and cie
-	ln -sr "${destdir}/bin/wine" "${destdir}/bin/wine64"
+	ln -srf "${destdir}/bin/wine" "${destdir}/bin/wine64"
 
 	# Backup compiled wine version
 	git -C "${_src_path}" describe --tags --long > "${destdir}/share/wine/version"
