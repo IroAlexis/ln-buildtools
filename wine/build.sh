@@ -153,7 +153,7 @@ polish_source()
 	./tools/make_requests
 
 	if [ -e tools/make_specfiles ]; then
-	  ./tools/make_specfiles
+		./tools/make_specfiles
 	fi
 	autoreconf -fiv
 }
