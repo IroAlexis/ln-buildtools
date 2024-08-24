@@ -31,7 +31,7 @@ fi
 [ -z "$XDG_USER_DATA" ] && XDG_USER_DATA="$HOME/.local/share"
 
 url="https://gitlab.winehq.org/wine/wine.git"
-pkgname="wine-fastsync-git"
+pkgname="wine-git"
 
 buildir="/tmp/${_name}"
 userdata="$XDG_USER_DATA/${_name}"
@@ -57,9 +57,17 @@ _warning()
 
 _run_patcher()
 {
+	local _patch_name
+	_patch_name="$(basename "$1")"
+
+	if [ -n "$DEBUG" ]
+	then
+		read -rp "Press enter for continue..."
+	fi
+
 	if ! git -C "${_src_path}" apply "$1"
 	then
-		_error "$(basename "$1")"
+		_error "${_patch_name}"
 		exit 1
 	fi
 }
@@ -67,19 +75,19 @@ _run_patcher()
 
 apply_patches()
 {
-	for _patch in "${_basedir}/patches/"*.patch
-	do
-		_msg "################################"
-		_msg "Applying $(basename "${_patch}")"
-		_msg "################################"
+	local _patch_dir="${_basedir}/patches"
 
-		_run_patcher "${_patch}"
-	done
+	if [ -b "/dev/ntsync" ]
+	then
+		_run_patcher "${_patch_dir}/fastsync-mainline.patch"
+	else
+		_run_patcher "${_patch_dir}/esync-mainline.patch"
+	fi
 }
 
 apply_userpatches()
 {
-	for _patch in "${_basedir}"/userpatches/*.patch
+	for _patch in "${_basedir}/userpatches/"*.patch
 	do
 		if [ -e "${_patch}" ]
 		then
@@ -178,7 +186,7 @@ git clone "${_mirror_path}" "${_src_path}"
 
 
 _msg "Cleaning wine source code tree..."
-git -C "${_src_path}" reset --hard HEAD
+git -C "${_src_path}" reset --hard
 git -C "${_src_path}" clean -xdf
 
 
