@@ -1,0 +1,736 @@
+From 7013533ca095659ae85a6b1e12c50f3d79340694 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Almeida?= <andrealmeid@collabora.com>
+Date: Thu, 21 Oct 2021 13:36:14 -0300
+Subject: [PATCH 1/8] ntdll/fsync: Support futex_waitv() API
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since an interface for wait on multiple futexes was merged, we no longer
+need to support different interfaces. Drop out FUTEX_WAIT_MULTIPLE
+(opcode 31) in favor of the futex_waitv() interface accepted by
+upstream Linux.
+
+Signed-off-by: André Almeida <andrealmeid@collabora.com>
+Link: https://github.com/ValveSoftware/wine/pull/128
+---
+ dlls/ntdll/unix/fsync.c | 101 ++++++++++++++++++++--------------------
+ server/fsync.c          |  19 ++------
+ 2 files changed, 55 insertions(+), 65 deletions(-)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index c92da2442b4..19849826445 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -39,6 +39,7 @@
+ # include <sys/syscall.h>
+ #endif
+ #include <unistd.h>
++#include <stdint.h>
+ 
+ #include "ntstatus.h"
+ #define WIN32_NO_STATUS
+@@ -53,16 +54,30 @@
+ WINE_DEFAULT_DEBUG_CHANNEL(fsync);
+ 
+ #include "pshpack4.h"
+-struct futex_wait_block
+-{
+-    int *addr;
+-#if __SIZEOF_POINTER__ == 4
+-    int pad;
++#include "poppack.h"
++
++/* futex_waitv interface */
++
++#ifndef __NR_futex_waitv
++
++# define __NR_futex_waitv 449
++# define FUTEX_32 2
++struct futex_waitv {
++    uint64_t   val;
++    uint64_t   uaddr;
++    uint32_t   flags;
++    uint32_t __reserved;
++};
++
+ #endif
+-    int val;
+-    int bitset;
++
++#define u64_to_ptr(x) (void *)(uintptr_t)(x)
++
++struct timespec64
++{
++    long long tv_sec;
++    long long tv_nsec;
+ };
+-#include "poppack.h"
+ 
+ static inline void small_pause(void)
+ {
+@@ -84,20 +99,29 @@ static LONGLONG update_timeout( ULONGLONG end )
+     return timeleft;
+ }
+ 
+-static inline int futex_wait_multiple( const struct futex_wait_block *futexes,
++static inline void futex_vector_set( struct futex_waitv *waitv, int *addr, int val )
++{
++    waitv->uaddr = (uintptr_t) addr;
++    waitv->val = val;
++    waitv->flags = FUTEX_32;
++    waitv->__reserved = 0;
++}
++
++static inline int futex_wait_multiple( const struct futex_waitv *futexes,
+         int count, const ULONGLONG *end )
+ {
+    if (end)
+    {
+-        LONGLONG timeleft = update_timeout( *end );
+-        struct timespec timeout;
+-        timeout.tv_sec = timeleft / (ULONGLONG)TICKSPERSEC;
+-        timeout.tv_nsec = (timeleft % TICKSPERSEC) * 100;
+-        return syscall( __NR_futex, futexes, 31, count, timeout, 0, 0 );
++        struct timespec64 timeout;
++        ULONGLONG tmp = *end - SECS_1601_TO_1970 * TICKSPERSEC;
++        timeout.tv_sec = tmp / (ULONGLONG)TICKSPERSEC;
++        timeout.tv_nsec = (tmp % TICKSPERSEC) * 100;
++
++        return syscall( __NR_futex_waitv, futexes, count, 0, &timeout, CLOCK_REALTIME );
+    }
+    else
+    {
+-        return syscall( __NR_futex, futexes, 31, count, NULL, 0, 0 );
++        return syscall( __NR_futex_waitv, futexes, count, 0, NULL, 0 );
+    }
+ }
+ 
+@@ -131,8 +155,7 @@ int do_fsync(void)
+ 
+     if (do_fsync_cached == -1)
+     {
+-        ULONGLONG zero;
+-        futex_wait_multiple( NULL, 0, &zero );
++        syscall( __NR_futex_waitv, NULL, 0, 0, NULL, 0 );
+         do_fsync_cached = getenv("WINEFSYNC") && atoi(getenv("WINEFSYNC")) && errno != ENOSYS;
+         if (getenv("WINEFSYNC_SPINCOUNT"))
+             spincount = atoi(getenv("WINEFSYNC_SPINCOUNT"));
+@@ -682,19 +705,13 @@ static NTSTATUS do_single_wait( int *addr, int val, ULONGLONG *end, BOOLEAN aler
+     if (alertable)
+     {
+         int *apc_futex = ntdll_get_thread_data()->fsync_apc_futex;
+-        struct futex_wait_block futexes[2];
++        struct futex_waitv futexes[2];
+ 
+         if (__atomic_load_n( apc_futex, __ATOMIC_SEQ_CST ))
+             return STATUS_USER_APC;
+ 
+-        futexes[0].addr = addr;
+-        futexes[0].val = val;
+-        futexes[1].addr = apc_futex;
+-        futexes[1].val = 0;
+-#if __SIZEOF_POINTER__ == 4
+-        futexes[0].pad = futexes[1].pad = 0;
+-#endif
+-        futexes[0].bitset = futexes[1].bitset = ~0;
++        futex_vector_set( &futexes[0], addr, val );
++        futex_vector_set( &futexes[1], apc_futex, 0 );
+ 
+         ret = futex_wait_multiple( futexes, 2, end );
+ 
+@@ -719,7 +736,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+ {
+     static const LARGE_INTEGER zero = {0};
+ 
+-    struct futex_wait_block futexes[MAXIMUM_WAIT_OBJECTS + 1];
++    struct futex_waitv futexes[MAXIMUM_WAIT_OBJECTS + 1];
+     struct fsync *objs[MAXIMUM_WAIT_OBJECTS];
+     int has_fsync = 0, has_server = 0;
+     BOOL msgwait = FALSE;
+@@ -849,8 +866,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                             small_pause();
+                         }
+ 
+-                        futexes[i].addr = &semaphore->count;
+-                        futexes[i].val = 0;
++                        futex_vector_set( &futexes[i], &semaphore->count, 0 );
+                         break;
+                     }
+                     case FSYNC_MUTEX:
+@@ -882,8 +898,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                             small_pause();
+                         }
+ 
+-                        futexes[i].addr = &mutex->tid;
+-                        futexes[i].val  = tid;
++                        futex_vector_set( &futexes[i], &mutex->tid, tid );
+                         break;
+                     }
+                     case FSYNC_AUTO_EVENT:
+@@ -901,8 +916,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                             small_pause();
+                         }
+ 
+-                        futexes[i].addr = &event->signaled;
+-                        futexes[i].val = 0;
++                        futex_vector_set( &futexes[i], &event->signaled, 0 );
+                         break;
+                     }
+                     case FSYNC_MANUAL_EVENT:
+@@ -921,8 +935,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                             small_pause();
+                         }
+ 
+-                        futexes[i].addr = &event->signaled;
+-                        futexes[i].val = 0;
++                        futex_vector_set( &futexes[i], &event->signaled, 0 );
+                         break;
+                     }
+                     default:
+@@ -933,26 +946,14 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                 else
+                 {
+                     /* Avoid breaking things entirely. */
+-                    futexes[i].addr = &dummy_futex;
+-                    futexes[i].val = dummy_futex;
++                    futex_vector_set( &futexes[i], &dummy_futex, dummy_futex );
+                 }
+-
+-#if __SIZEOF_POINTER__ == 4
+-                futexes[i].pad = 0;
+-#endif
+-                futexes[i].bitset = ~0;
+             }
+ 
+             if (alertable)
+             {
+                 /* We already checked if it was signaled; don't bother doing it again. */
+-                futexes[i].addr = ntdll_get_thread_data()->fsync_apc_futex;
+-                futexes[i].val = 0;
+-#if __SIZEOF_POINTER__ == 4
+-                futexes[i].pad = 0;
+-#endif
+-                futexes[i].bitset = ~0;
+-                i++;
++                futex_vector_set( &futexes[i++], ntdll_get_thread_data()->fsync_apc_futex, 0 );
+             }
+             waitcount = i;
+ 
+@@ -967,7 +968,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+             }
+ 
+             if (waitcount == 1)
+-                ret = futex_wait( futexes[0].addr, futexes[0].val, timeout ? &end : NULL );
++                ret = futex_wait( u64_to_ptr(futexes[0].uaddr), futexes[0].val, timeout ? &end : NULL );
+             else
+                 ret = futex_wait_multiple( futexes, waitcount, timeout ? &end : NULL );
+ 
+diff --git a/server/fsync.c b/server/fsync.c
+index 3ad59f4735f..593070ad62e 100644
+--- a/server/fsync.c
++++ b/server/fsync.c
+@@ -44,21 +44,11 @@
+ #include "fsync.h"
+ 
+ #include "pshpack4.h"
+-struct futex_wait_block
+-{
+-    int *addr;
+-#if __SIZEOF_POINTER__ == 4
+-    int pad;
+-#endif
+-    int val;
+-};
+ #include "poppack.h"
+ 
+-static inline int futex_wait_multiple( const struct futex_wait_block *futexes,
+-        int count, const struct timespec *timeout )
+-{
+-    return syscall( __NR_futex, futexes, 31, count, timeout, 0, 0 );
+-}
++#ifndef __NR_futex_waitv
++#define __NR_futex_waitv 449
++#endif
+ 
+ int do_fsync(void)
+ {
+@@ -67,8 +57,7 @@ int do_fsync(void)
+ 
+     if (do_fsync_cached == -1)
+     {
+-        static const struct timespec zero;
+-        futex_wait_multiple( NULL, 0, &zero );
++        syscall( __NR_futex_waitv, 0, 0, 0, 0, 0);
+         do_fsync_cached = getenv("WINEFSYNC") && atoi(getenv("WINEFSYNC")) && errno != ENOSYS;
+     }
+ 
+-- 
+2.46.0
+
+
+From d671f73593bcaf20640669cfe48e86bdfeccc91b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Almeida?= <andrealmeid@collabora.com>
+Date: Thu, 21 Oct 2021 20:33:58 -0300
+Subject: [PATCH 2/8] ntdll/fsync: Use absolute timeouts for futex_wait
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Use the FUTEX_WAIT_BITSET operation instead of FUTEX_WAIT, that allow us
+to use absolute timeouts rather than relative ones that requires an
+extra syscall to update the timeout.
+
+Signed-off-by: André Almeida <andrealmeid@collabora.com>
+Link: https://github.com/ValveSoftware/wine/pull/128
+---
+ dlls/ntdll/unix/fsync.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index 19849826445..ec65af55e03 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -56,6 +56,10 @@ WINE_DEFAULT_DEBUG_CHANNEL(fsync);
+ #include "pshpack4.h"
+ #include "poppack.h"
+ 
++#define FUTEX_WAIT_BITSET	9
++#define FUTEX_CLOCK_REALTIME	256
++#define FUTEX_BITSET_MATCH_ANY	0xffffffff
++
+ /* futex_waitv interface */
+ 
+ #ifndef __NR_futex_waitv
+@@ -134,11 +138,13 @@ static inline int futex_wait( int *addr, int val, const ULONGLONG *end )
+ {
+     if (end)
+     {
+-        LONGLONG timeleft = update_timeout( *end );
+         struct timespec timeout;
+-        timeout.tv_sec = timeleft / (ULONGLONG)TICKSPERSEC;
+-        timeout.tv_nsec = (timeleft % TICKSPERSEC) * 100;
+-        return syscall( __NR_futex, addr, 0, val, &timeout, 0, 0 );
++        ULONGLONG tmp = *end - SECS_1601_TO_1970 * TICKSPERSEC;
++        timeout.tv_sec = tmp / (ULONGLONG)TICKSPERSEC;
++        timeout.tv_nsec = (tmp % TICKSPERSEC) * 100;
++
++        return syscall( __NR_futex, addr, FUTEX_WAIT_BITSET | FUTEX_CLOCK_REALTIME,
++			val, &timeout, 0, FUTEX_BITSET_MATCH_ANY );
+     }
+     else
+     {
+-- 
+2.46.0
+
+
+From 21f251116fa5375f291dd8766071f4f0e4707551 Mon Sep 17 00:00:00 2001
+From: Derek Lesho <dlesho@codeweavers.com>
+Date: Mon, 14 Feb 2022 12:51:27 -0500
+Subject: [PATCH 3/8] fsync: Type-check HANDLE in fsync_set_event().
+
+Signed-off-by: Derek Lesho <dlesho@codeweavers.com>
+---
+ dlls/ntdll/unix/fsync.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index ec65af55e03..a0badada2b5 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -567,6 +567,9 @@ NTSTATUS fsync_set_event( HANDLE handle, LONG *prev )
+     if ((ret = get_object( handle, &obj ))) return ret;
+     event = obj->shm;
+ 
++    if (obj->type != FSYNC_MANUAL_EVENT && obj->type != FSYNC_AUTO_EVENT)
++        return STATUS_OBJECT_TYPE_MISMATCH;
++
+     if (!(current = __atomic_exchange_n( &event->signaled, 1, __ATOMIC_SEQ_CST )))
+         futex_wake( &event->signaled, INT_MAX );
+ 
+-- 
+2.46.0
+
+
+From 81565c5c060309833fcec384255a54cbbefff728 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 18 Feb 2022 12:56:58 +0300
+Subject: [PATCH 4/8] fsync: Fix semaphore grab attempt on wait all path.
+
+CW-Bug-Id: #20189
+---
+ dlls/ntdll/unix/fsync.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index a0badada2b5..3262e7ae252 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -1112,7 +1112,10 @@ tryagain:
+                 case FSYNC_SEMAPHORE:
+                 {
+                     struct semaphore *semaphore = obj->shm;
+-                    if (__sync_fetch_and_sub( &semaphore->count, 1 ) <= 0)
++                    int current;
++
++                    if (!(current = __atomic_load_n( &semaphore->count, __ATOMIC_SEQ_CST ))
++                            || __sync_val_compare_and_swap( &semaphore->count, current, current - 1 ) != current)
+                         goto tooslow;
+                     break;
+                 }
+-- 
+2.46.0
+
+
+From b1c11cfb4359aaf6316e2f98ae988f0c5d74d43c Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 18 Feb 2022 12:58:53 +0300
+Subject: [PATCH 5/8] fsync: Always check for NULL object on wait all path.
+
+CW-Bug-Id: #20189
+---
+ dlls/ntdll/unix/fsync.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index 3262e7ae252..4e091d140c0 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -1093,6 +1093,7 @@ tryagain:
+             for (i = 0; i < count; i++)
+             {
+                 struct fsync *obj = objs[i];
++                if (!obj) continue;
+                 switch (obj->type)
+                 {
+                 case FSYNC_MUTEX:
+@@ -1157,6 +1158,7 @@ tooslow:
+             for (--i; i >= 0; i--)
+             {
+                 struct fsync *obj = objs[i];
++                if (!obj) continue;
+                 switch (obj->type)
+                 {
+                 case FSYNC_MUTEX:
+-- 
+2.46.0
+
+
+From 1781216f734120906e9b58d3cd8ee5f621b8d757 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 18 Feb 2022 13:04:01 +0300
+Subject: [PATCH 6/8] fsync: Get rid of spin before futex wait.
+
+CW-Bug-Id: #20189
+
+Rebased by Alexis Peypelut
+---
+ dlls/ntdll/unix/fsync.c | 76 ++++++++++++-----------------------------
+ 1 file changed, 21 insertions(+), 55 deletions(-)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index 4e091d140c0..e7f7ab51284 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -83,15 +83,6 @@ struct timespec64
+     long long tv_nsec;
+ };
+ 
+-static inline void small_pause(void)
+-{
+-#if defined(__i386__) || defined(__x86_64__)
+-    __asm__ __volatile__( "rep;nop" : : : "memory" );
+-#else
+-    __asm__ __volatile__( "" : : : "memory" );
+-#endif
+-}
+-
+ static LONGLONG update_timeout( ULONGLONG end )
+ {
+     LARGE_INTEGER now;
+@@ -144,7 +135,7 @@ static inline int futex_wait( int *addr, int val, const ULONGLONG *end )
+         timeout.tv_nsec = (tmp % TICKSPERSEC) * 100;
+ 
+         return syscall( __NR_futex, addr, FUTEX_WAIT_BITSET | FUTEX_CLOCK_REALTIME,
+-			val, &timeout, 0, FUTEX_BITSET_MATCH_ANY );
++                        val, &timeout, 0, FUTEX_BITSET_MATCH_ANY );
+     }
+     else
+     {
+@@ -152,8 +143,6 @@ static inline int futex_wait( int *addr, int val, const ULONGLONG *end )
+     }
+ }
+ 
+-static unsigned int spincount = 100;
+-
+ int do_fsync(void)
+ {
+ #ifdef __linux__
+@@ -163,8 +152,6 @@ int do_fsync(void)
+     {
+         syscall( __NR_futex_waitv, NULL, 0, 0, NULL, 0 );
+         do_fsync_cached = getenv("WINEFSYNC") && atoi(getenv("WINEFSYNC")) && errno != ENOSYS;
+-        if (getenv("WINEFSYNC_SPINCOUNT"))
+-            spincount = atoi(getenv("WINEFSYNC_SPINCOUNT"));
+     }
+ 
+     return do_fsync_cached;
+@@ -750,7 +737,6 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+     int has_fsync = 0, has_server = 0;
+     BOOL msgwait = FALSE;
+     int dummy_futex = 0;
+-    unsigned int spin;
+     LONGLONG timeleft;
+     LARGE_INTEGER now;
+     DWORD waitcount;
+@@ -860,19 +846,11 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                         struct semaphore *semaphore = obj->shm;
+                         int current;
+ 
+-                        /* It would be a little clearer (and less error-prone)
+-                         * to use a dedicated interlocked_dec_if_nonzero()
+-                         * helper, but nesting loops like that is probably not
+-                         * great for performance... */
+-                        for (spin = 0; spin <= spincount || current; ++spin)
++                        if ((current = __atomic_load_n( &semaphore->count, __ATOMIC_SEQ_CST ))
++                                && __sync_val_compare_and_swap( &semaphore->count, current, current - 1 ) == current)
+                         {
+-                            if ((current = __atomic_load_n( &semaphore->count, __ATOMIC_SEQ_CST ))
+-                                    && __sync_val_compare_and_swap( &semaphore->count, current, current - 1 ) == current)
+-                            {
+-                                TRACE("Woken up by handle %p [%d].\n", handles[i], i);
+-                                return i;
+-                            }
+-                            small_pause();
++                            TRACE("Woken up by handle %p [%d].\n", handles[i], i);
++                            return i;
+                         }
+ 
+                         futex_vector_set( &futexes[i], &semaphore->count, 0 );
+@@ -890,21 +868,17 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                             return i;
+                         }
+ 
+-                        for (spin = 0; spin <= spincount; ++spin)
++                        if (!(tid = __sync_val_compare_and_swap( &mutex->tid, 0, GetCurrentThreadId() )))
+                         {
+-                            if (!(tid = __sync_val_compare_and_swap( &mutex->tid, 0, GetCurrentThreadId() )))
+-                            {
+-                                TRACE("Woken up by handle %p [%d].\n", handles[i], i);
+-                                mutex->count = 1;
+-                                return i;
+-                            }
+-                            else if (tid == ~0 && (tid = __sync_val_compare_and_swap( &mutex->tid, ~0, GetCurrentThreadId() )) == ~0)
+-                            {
+-                                TRACE("Woken up by abandoned mutex %p [%d].\n", handles[i], i);
+-                                mutex->count = 1;
+-                                return STATUS_ABANDONED_WAIT_0 + i;
+-                            }
+-                            small_pause();
++                            TRACE("Woken up by handle %p [%d].\n", handles[i], i);
++                            mutex->count = 1;
++                            return i;
++                        }
++                        else if (tid == ~0 && (tid = __sync_val_compare_and_swap( &mutex->tid, ~0, GetCurrentThreadId() )) == ~0)
++                        {
++                            TRACE("Woken up by abandoned mutex %p [%d].\n", handles[i], i);
++                            mutex->count = 1;
++                            return STATUS_ABANDONED_WAIT_0 + i;
+                         }
+ 
+                         futex_vector_set( &futexes[i], &mutex->tid, tid );
+@@ -915,14 +889,10 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                     {
+                         struct event *event = obj->shm;
+ 
+-                        for (spin = 0; spin <= spincount; ++spin)
++                        if (__sync_val_compare_and_swap( &event->signaled, 1, 0 ))
+                         {
+-                            if (__sync_val_compare_and_swap( &event->signaled, 1, 0 ))
+-                            {
+-                                TRACE("Woken up by handle %p [%d].\n", handles[i], i);
+-                                return i;
+-                            }
+-                            small_pause();
++                            TRACE("Woken up by handle %p [%d].\n", handles[i], i);
++                            return i;
+                         }
+ 
+                         futex_vector_set( &futexes[i], &event->signaled, 0 );
+@@ -934,14 +904,10 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                     {
+                         struct event *event = obj->shm;
+ 
+-                        for (spin = 0; spin <= spincount; ++spin)
++                        if (__atomic_load_n( &event->signaled, __ATOMIC_SEQ_CST ))
+                         {
+-                            if (__atomic_load_n( &event->signaled, __ATOMIC_SEQ_CST ))
+-                            {
+-                                TRACE("Woken up by handle %p [%d].\n", handles[i], i);
+-                                return i;
+-                            }
+-                            small_pause();
++                            TRACE("Woken up by handle %p [%d].\n", handles[i], i);
++                            return i;
+                         }
+ 
+                         futex_vector_set( &futexes[i], &event->signaled, 0 );
+-- 
+2.46.0
+
+
+From 6b4f8c66d00048e37417bd90461146c897d06733 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 18 Feb 2022 12:46:59 +0300
+Subject: [PATCH 7/8] fsync: Always use futex_waitv for wait.
+
+CW-Bug-Id: #20189
+---
+ dlls/ntdll/unix/fsync.c | 34 +++++-----------------------------
+ 1 file changed, 5 insertions(+), 29 deletions(-)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index e7f7ab51284..a699351842b 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -56,10 +56,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(fsync);
+ #include "pshpack4.h"
+ #include "poppack.h"
+ 
+-#define FUTEX_WAIT_BITSET	9
+-#define FUTEX_CLOCK_REALTIME	256
+-#define FUTEX_BITSET_MATCH_ANY	0xffffffff
+-
+ /* futex_waitv interface */
+ 
+ #ifndef __NR_futex_waitv
+@@ -125,24 +121,6 @@ static inline int futex_wake( int *addr, int val )
+     return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
+ }
+ 
+-static inline int futex_wait( int *addr, int val, const ULONGLONG *end )
+-{
+-    if (end)
+-    {
+-        struct timespec timeout;
+-        ULONGLONG tmp = *end - SECS_1601_TO_1970 * TICKSPERSEC;
+-        timeout.tv_sec = tmp / (ULONGLONG)TICKSPERSEC;
+-        timeout.tv_nsec = (tmp % TICKSPERSEC) * 100;
+-
+-        return syscall( __NR_futex, addr, FUTEX_WAIT_BITSET | FUTEX_CLOCK_REALTIME,
+-                        val, &timeout, 0, FUTEX_BITSET_MATCH_ANY );
+-    }
+-    else
+-    {
+-        return syscall( __NR_futex, addr, 0, val, NULL, 0, 0 );
+-    }
+-}
+-
+ int do_fsync(void)
+ {
+ #ifdef __linux__
+@@ -696,17 +674,18 @@ NTSTATUS fsync_query_mutex( HANDLE handle, void *info, ULONG *ret_len )
+ 
+ static NTSTATUS do_single_wait( int *addr, int val, ULONGLONG *end, BOOLEAN alertable )
+ {
++    struct futex_waitv futexes[2];
+     int ret;
+ 
++    futex_vector_set( &futexes[0], addr, val );
++
+     if (alertable)
+     {
+         int *apc_futex = ntdll_get_thread_data()->fsync_apc_futex;
+-        struct futex_waitv futexes[2];
+ 
+         if (__atomic_load_n( apc_futex, __ATOMIC_SEQ_CST ))
+             return STATUS_USER_APC;
+ 
+-        futex_vector_set( &futexes[0], addr, val );
+         futex_vector_set( &futexes[1], apc_futex, 0 );
+ 
+         ret = futex_wait_multiple( futexes, 2, end );
+@@ -716,7 +695,7 @@ static NTSTATUS do_single_wait( int *addr, int val, ULONGLONG *end, BOOLEAN aler
+     }
+     else
+     {
+-        ret = futex_wait( addr, val, end );
++        ret = futex_wait_multiple( futexes, 1, end );
+     }
+ 
+     if (!ret)
+@@ -942,10 +921,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+                 return STATUS_TIMEOUT;
+             }
+ 
+-            if (waitcount == 1)
+-                ret = futex_wait( u64_to_ptr(futexes[0].uaddr), futexes[0].val, timeout ? &end : NULL );
+-            else
+-                ret = futex_wait_multiple( futexes, waitcount, timeout ? &end : NULL );
++            ret = futex_wait_multiple( futexes, waitcount, timeout ? &end : NULL );
+ 
+             /* FUTEX_WAIT_MULTIPLE can succeed or return -EINTR, -EAGAIN,
+              * -EFAULT/-EACCES, -ETIMEDOUT. In the first three cases we need to
+-- 
+2.46.0
+
+
+From ce547220bec2d43fe8cfd0bc9347ee82951d803e Mon Sep 17 00:00:00 2001
+From: Zebediah Figura <zfigura@codeweavers.com>
+Date: Mon, 21 Feb 2022 12:32:49 -0600
+Subject: [PATCH 8/8] ntdll: Include linux/futex.h in fsync.c.
+
+Rebased by Alexis Peypelut from Tk-Glitch patch
+https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-patches/proton/fsync/fsync_futex_waitv.patch
+---
+ configure               | 6 ++++++
+ configure.ac            | 1 +
+ dlls/ntdll/unix/fsync.c | 3 +++
+ 3 files changed, 10 insertions(+)
+
+diff --git a/configure b/configure
+index 233c7b6b3a3..423dba30310 100755
+--- a/configure
++++ b/configure
+@@ -7958,6 +7958,12 @@ if test "x$ac_cv_header_linux_filter_h" = xyes
+ then :
+   printf "%s\n" "#define HAVE_LINUX_FILTER_H 1" >>confdefs.h
+ 
++fi
++ac_fn_c_check_header_compile "$LINENO" "linux/futex.h" "ac_cv_header_linux_futex_h" "$ac_includes_default"
++if test "x$ac_cv_header_linux_futex_h" = xyes
++then :
++  printf "%s\n" "#define HAVE_LINUX_FUTEX_H 1" >>confdefs.h
++
+ fi
+ ac_fn_c_check_header_compile "$LINENO" "linux/hdreg.h" "ac_cv_header_linux_hdreg_h" "$ac_includes_default"
+ if test "x$ac_cv_header_linux_hdreg_h" = xyes
+diff --git a/configure.ac b/configure.ac
+index d60b3c87102..abc51f02b47 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -375,6 +375,7 @@ AC_CHECK_HEADERS(\
+ 	link.h \
+ 	linux/cdrom.h \
+ 	linux/filter.h \
++	linux/futex.h \
+ 	linux/hdreg.h \
+ 	linux/hidraw.h \
+ 	linux/input.h \
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index a699351842b..32f661a9714 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -38,6 +38,9 @@
+ #ifdef HAVE_SYS_SYSCALL_H
+ # include <sys/syscall.h>
+ #endif
++#ifdef HAVE_LINUX_FUTEX_H
++# include <linux/futex.h>
++#endif
+ #include <unistd.h>
+ #include <stdint.h>
+ 
+-- 
+2.46.0
+

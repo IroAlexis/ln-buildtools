@@ -82,6 +82,8 @@ apply_patches()
 		_run_patcher "${_patch_dir}/fastsync-mainline.patch"
 	else
 		_run_patcher "${_patch_dir}/esync-mainline.patch"
+		_run_patcher "${_patch_dir}/fsync-mainline.patch"
+		_run_patcher "${_patch_dir}/fsync-waitv-mainline.patch"
 	fi
 }
 
